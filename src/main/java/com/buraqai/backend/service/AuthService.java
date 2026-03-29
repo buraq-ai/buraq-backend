@@ -11,6 +11,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
@@ -59,5 +60,12 @@ public class AuthService {
 
         // Return response
         return new LoginResponseDTO(accessToken, refreshToken, user.getRole());
+    }
+
+    public void logout(String refreshToken) {
+        RefreshToken token = refreshTokenRepository.findByToken(refreshToken)
+                .orElseThrow(() -> new RuntimeException("Refresh token not found"));
+
+        refreshTokenRepository.delete(token);
     }
 }
