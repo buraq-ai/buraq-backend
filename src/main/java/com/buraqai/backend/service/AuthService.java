@@ -30,7 +30,7 @@ public class AuthService {
         this.jwtUtil = jwtUtil;
         this.passwordEncoder = passwordEncoder;
     }
-
+    @Transactional
     public LoginResponseDTO login(LoginRequestDTO loginRequest) {
         // Find user by email
         User user = userRepository.findByEmail(loginRequest.getEmail())
@@ -51,6 +51,7 @@ public class AuthService {
         String refreshToken = jwtUtil.generateRefreshToken(user.getEmail());
 
         // Save refresh token to database
+        refreshTokenRepository.deleteByEmail(user.getEmail());
         RefreshToken refreshTokenEntity = new RefreshToken(
                 refreshToken,
                 user.getEmail(),
