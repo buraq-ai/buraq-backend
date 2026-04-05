@@ -9,6 +9,8 @@ import com.buraqai.backend.repository.UserRepository;
 import com.buraqai.backend.security.JwtUtil;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import com.buraqai.backend.exception.AccountDeactivatedException;
+
 
 import java.time.LocalDateTime;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,9 +38,9 @@ public class AuthService {
         User user = userRepository.findByEmail(loginRequest.getEmail())
                 .orElseThrow(() -> new RuntimeException("Invalid email or password"));
 
-        // Check if user is active
+        // Check if user is active — deactivated users cannot log in
         if (!user.getActive()) {
-            throw new RuntimeException("Account is disabled");
+            throw new AccountDeactivatedException();
         }
 
         // Verify password

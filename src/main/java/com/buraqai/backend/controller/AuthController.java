@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import com.buraqai.backend.exception.AccountDeactivatedException;
 
 
 
@@ -28,12 +29,16 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponseDTO> login(@Valid @RequestBody LoginRequestDTO loginRequest) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequestDTO loginRequest) {
         try {
             LoginResponseDTO response = authService.login(loginRequest);
             return ResponseEntity.ok(response);
+        } catch (AccountDeactivatedException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("status", 403, "message", e.getMessage()));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("status", 401, "message", "Invalid email or password"));
         }
     }
 
@@ -54,13 +59,17 @@ public class AuthController {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<?> handleRuntimeException(RuntimeException ex) {
-        if (ex.getMessage().equals("Refresh token not found")) {
+        if (ex instanceof AccountDeactivatedException) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("status", 403, "message", ex.getMessage()));
+        }
+        if (ex.getMessage() != null && ex.getMessage().equals("Refresh token not found")) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "Refresh token not found"));
         }
-        // For other runtime exceptions, return 500 Internal Server Error
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of("error", "An unexpected error occurred"));
+        // Invalid credentials or any other auth error → 401
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("status", 401, "message", "Invalid email or password"));
     }
 
 

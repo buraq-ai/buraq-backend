@@ -11,6 +11,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -45,5 +48,24 @@ public class UserController {
 
         UserResponseDTO updatedUser = userService.updateUser(id, dto);
         return ResponseEntity.ok(updatedUser);
+    }
+
+    // GET /api/admin/users — fetch all users
+    @GetMapping("/users")
+    public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
+        List<UserResponseDTO> users = userService.getAllUsers();
+        return ResponseEntity.ok(users);
+    }
+
+    // PATCH /api/admin/users/{id}/deactivate — deactivate a user
+    @PatchMapping("/users/{id}/deactivate")
+    public ResponseEntity<UserResponseDTO> deactivateUser(@PathVariable Long id) {
+
+        // Extract the logged-in admin's email from the JWT via Spring Security
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String adminEmail = authentication.getName();
+
+        UserResponseDTO response = userService.deactivateUser(id, adminEmail);
+        return ResponseEntity.ok(response);
     }
 }

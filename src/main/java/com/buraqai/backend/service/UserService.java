@@ -13,6 +13,10 @@ import com.buraqai.backend.repository.UserRepository;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import com.buraqai.backend.exception.CannotDeactivateSelfException;
+import com.buraqai.backend.exception.UserAlreadyInactiveException;
+import java.util.List;
+
 
 @Service
 
@@ -147,5 +151,59 @@ public class UserService {
                 user.getActive(),
                 user.getCreatedAt()
         );
+    }
+
+    public UserResponseDTO deactivateUser(Long id, String adminEmail) {
+
+        // 1. Find the user or throw 404
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new UserNotFoundException(id));
+
+        // 2. Prevent admin from deactivating their own account
+        if (user.getEmail().equalsIgnoreCase(adminEmail)) {
+            throw new CannotDeactivateSelfException();
+        }
+
+        // 3. Prevent deactivating an already inactive user
+        if (!user.getActive()) {
+            throw new UserAlreadyInactiveException(id);
+        }
+
+        // 4. Soft-delete: set active = false
+        user.setActive(false);
+        User savedUser = userRepository.save(user);
+
+        // 5. Create audit log entry
+        AuditLog log = new AuditLog();
+        log.setEntityType("USER");
+        log.setEntityId(id);
+        log.setAction("DEACTIVATE");
+        log.setPerformedBy(adminEmail);
+        log.setDetails("User deactivated by " + adminEmail);
+        auditLogRepository.save(log);
+
+        // 6. Return updated user as DTO
+        return new UserResponseDTO(
+                savedUser.getId(),
+                savedUser.getFullName(),
+                savedUser.getEmail(),
+                savedUser.getRole().name(),
+                savedUser.getActive(),
+                savedUser.getCreatedAt()
+        );
+    }
+
+    public List<UserResponseDTO> getAllUsers() {
+        return userRepository.findAll()
+                .stream()
+                .map(user -> new UserResponseDTO(
+                        user.getId(),
+                        user.getFullName(),
+                        user.getEmail(),
+                        user.getRole().name(),
+                        user.getActive(),
+                        user.getCreatedAt()
+                ))
+                .toList();
     }
 }

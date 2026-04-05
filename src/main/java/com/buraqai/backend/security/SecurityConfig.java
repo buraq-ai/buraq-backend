@@ -15,8 +15,10 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
-
 import java.util.List;
+import org.springframework.security.authentication.DisabledException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 
 @Configuration
 @EnableWebSecurity
@@ -58,10 +60,31 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
 
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) ->
-                                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized"))
-                        .accessDeniedHandler((request, response, accessDeniedException) ->
-                                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Forbidden"))
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setContentType("application/json");
+
+                            if (authException.getCause() instanceof DisabledException) {
+                                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                                new ObjectMapper().writeValue(response.getOutputStream(), Map.of(
+                                        "status", 403,
+                                        "message", "Your account has been deactivated. Please contact your system administrator."
+                                ));
+                            } else {
+                                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                new ObjectMapper().writeValue(response.getOutputStream(), Map.of(
+                                        "status", 401,
+                                        "message", "Unauthorized"
+                                ));
+                            }
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setContentType("application/json");
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            new ObjectMapper().writeValue(response.getOutputStream(), Map.of(
+                                    "status", 403,
+                                    "message", "Forbidden"
+                            ));
+                        })
                 )
 
                 .httpBasic(httpBasic -> httpBasic.disable())
@@ -92,7 +115,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:4200"));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
         return new UrlBasedCorsConfigurationSource() {{
