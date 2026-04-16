@@ -5,6 +5,8 @@ import com.buraqai.backend.exception.FileSizeLimitExceededException;
 import com.buraqai.backend.exception.InvalidFileTypeException;
 import com.buraqai.backend.model.Document;
 import com.buraqai.backend.repository.DocumentRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,9 +20,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 
 
@@ -34,6 +39,12 @@ public class DocumentService {
 
     @Value("${app.storage.path}")
     private String storagePath;
+
+    @Value("${internal.service.key}")
+    private String internalServiceKey;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     // Maximum file size: 10MB in bytes
     private static final long MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -80,21 +91,33 @@ public class DocumentService {
         document.setStatus(Document.DocumentStatus.PENDING);
 
         Document savedDocument = documentRepository.save(document);
+
         logger.info("Document saved with ID: {}, status: PENDING", savedDocument.getId());
+        // Force immediate write to database so callback can find the document
+        entityManager.flush();
 
-        // 7. Trigger AI processing (fire-and-forget - failures are logged but don't break upload)
-        boolean aiTriggered = aiServiceClient.triggerDocumentProcessing(
-                savedDocument.getId(),
-                savedDocument.getStoragePath()
-        );
+        logger.info(">>> Flushed document {} to database. Transaction will commit after method completes.", savedDocument.getId());
 
-        if (aiTriggered) {
-            logger.info("AI processing triggered successfully for document ID: {}", savedDocument.getId());
-        } else {
-            logger.warn("AI processing could not be triggered for document ID: {}. Document remains in PENDING state.", savedDocument.getId());
-        }
+        // 7. Trigger AI processing AFTER transaction commits so callback can find the document
+        final Document finalSavedDocument = savedDocument;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                Path absolutePath = Paths.get(finalSavedDocument.getStoragePath()).toAbsolutePath();
+                boolean aiTriggered = aiServiceClient.triggerDocumentProcessing(
+                        finalSavedDocument.getId(),
+                        absolutePath.toString()
+                );
+                if (aiTriggered) {
+                    logger.info("AI processing triggered successfully for document ID: {}", finalSavedDocument.getId());
+                } else {
+                    logger.warn("AI processing could not be triggered for document ID: {}. Document remains in PENDING state.", finalSavedDocument.getId());
+                }
+            }
+        });
 
         // 8. Return DTO
+        logger.info(">>> Transaction committing now for document ID: {}", savedDocument.getId());
         return DocumentResponseDTO.fromEntity(savedDocument);
     }
 
@@ -172,5 +195,67 @@ public class DocumentService {
 
         logger.info("Retrieved {} documents", response.size());
         return response;
+    }
+
+    /**
+     * Updates the status of a document.
+     * This method is called by the AI service after processing completes.
+     *
+     * @param documentId The ID of the document to update
+     * @param status The new status (INDEXED or FAILED)
+     * @param serviceKey The service key from the request header for validation
+     * @throws IllegalArgumentException if the service key is invalid
+     * @throws RuntimeException if the document is not found
+     */
+    @Transactional
+    public void updateDocumentStatus(Long documentId, String status, String serviceKey) {
+        logger.info("Received status update request for document ID: {}, status: {}", documentId, status);
+
+        // Validate service key
+        if (internalServiceKey == null || internalServiceKey.isEmpty()) {
+            logger.error("Internal service key is not configured on the server");
+            throw new SecurityException("Service-to-service authentication is not configured");
+        }
+
+        if (serviceKey == null || !internalServiceKey.equals(serviceKey)) {
+            logger.warn("Invalid or missing service key for document ID: {}", documentId);
+            throw new SecurityException("Invalid service key");
+        }
+
+        // Retry up to 3 times with 500ms delay if document not found
+        Document document = null;
+        for (int i = 0; i < 3; i++) {
+            Optional<Document> opt = documentRepository.findById(documentId);
+            if (opt.isPresent()) {
+                document = opt.get();
+                break;
+            }
+            if (i < 2) {
+                logger.debug("Document {} not found, retrying in 500ms (attempt {}/3)", documentId, i + 1);
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.warn("Retry interrupted for document ID: {}", documentId);
+                    break;
+                }
+            }
+        }
+
+        if (document == null) {
+            logger.error("Document not found with ID: {} after 3 retries", documentId);
+            throw new RuntimeException("Document not found with ID: " + documentId);
+        }
+
+        // Update status based on the received value
+        try {
+            Document.DocumentStatus newStatus = Document.DocumentStatus.valueOf(status);
+            document.setStatus(newStatus);
+            documentRepository.save(document);
+            logger.info("Document ID: {} status updated to: {}", documentId, newStatus);
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid status value received: {}", status);
+            throw new IllegalArgumentException("Invalid status value. Expected INDEXED or FAILED");
+        }
     }
 }

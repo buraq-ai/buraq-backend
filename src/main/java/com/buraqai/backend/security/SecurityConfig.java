@@ -39,7 +39,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
 
                         // Public routes — no token needed
-                        .requestMatchers("/api/health", "/api/auth/**", "/error").permitAll()
+                        .requestMatchers("/api/health", "/api/auth/**",  "/api/documents/*/status", "/error").permitAll()
 
                         // Employee or higher
                         .requestMatchers("/api/employee/**").hasAnyRole("EMPLOYEE", "SUPPORT_AGENT", "ADMIN", "SYSTEM_ADMIN")

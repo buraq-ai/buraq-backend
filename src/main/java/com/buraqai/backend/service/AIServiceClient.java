@@ -30,7 +30,7 @@ public class AIServiceClient {
         // Configure timeouts to prevent hanging if AI service is down
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(10000);  // 10 seconds to establish connection
-        factory.setReadTimeout(30000);     // 30 seconds to receive response
+        factory.setReadTimeout(120000);     // 120 seconds (2 minutes) to receive response
 
         this.restTemplate = new RestTemplate(factory);
     }

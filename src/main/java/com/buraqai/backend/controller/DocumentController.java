@@ -1,6 +1,7 @@
 package com.buraqai.backend.controller;
 
 import com.buraqai.backend.dto.DocumentResponseDTO;
+import com.buraqai.backend.dto.StatusUpdateRequest;
 import com.buraqai.backend.service.DocumentService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -40,5 +41,16 @@ public class DocumentController {
     public ResponseEntity<List<DocumentResponseDTO>> getAllDocuments() {
         List<DocumentResponseDTO> documents = documentService.getAllDocuments();
         return ResponseEntity.ok(documents);
+    }
+
+    @PatchMapping("/{id}/status")
+    @PreAuthorize("permitAll()")  // Override class-level security
+    public ResponseEntity<Void> updateDocumentStatus(
+            @PathVariable Long id,
+            @RequestBody StatusUpdateRequest request,
+            @RequestHeader(value = "X-Service-Key", required = false) String serviceKey) {
+
+        documentService.updateDocumentStatus(id, request.getStatus(), serviceKey);
+        return ResponseEntity.ok().build();
     }
 }
