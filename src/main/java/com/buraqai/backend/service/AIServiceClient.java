@@ -71,4 +71,27 @@ public class AIServiceClient {
             return false;
         }
     }
+
+    /**
+     * Calls FastAPI to delete all ChromaDB chunks associated with a document.
+     * This is a best-effort call — if FastAPI is unavailable, we log the error
+     * and continue. The document metadata will still be deleted from PostgreSQL.
+     *
+     * @param documentId The ID of the document whose chunks should be removed
+     */
+    public void deleteDocumentChunks(Long documentId) {
+        String url = aiServiceUrl + "/internal/documents/" + documentId;
+
+        try {
+            logger.info("Requesting chunk deletion from AI service for document ID: {}", documentId);
+            restTemplate.delete(url);
+            logger.info("Successfully deleted chunks for document ID: {}", documentId);
+
+        } catch (RestClientException e) {
+            // Log the error but DO NOT block the delete operation
+            // PostgreSQL metadata will still be deleted even if FastAPI is unreachable
+            logger.error("Failed to delete chunks for document ID: {}. " +
+                    "AI service may be unavailable. Error: {}", documentId, e.getMessage());
+        }
+    }
 }

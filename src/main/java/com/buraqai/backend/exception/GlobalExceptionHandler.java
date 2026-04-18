@@ -45,6 +45,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
+    // Handles document not found → 404 Not Found
+    @ExceptionHandler(DocumentNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleDocumentNotFound(DocumentNotFoundException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 404);
+        error.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
     // Handles admin trying to deactivate themselves → 400 Bad Request
     @ExceptionHandler(CannotDeactivateSelfException.class)
     public ResponseEntity<Map<String, Object>> handleCannotDeactivateSelf(CannotDeactivateSelfException ex) {

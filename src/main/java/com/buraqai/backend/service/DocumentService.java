@@ -26,6 +26,9 @@ import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.buraqai.backend.model.AuditLog;
+import com.buraqai.backend.repository.AuditLogRepository;
+import com.buraqai.backend.exception.DocumentNotFoundException;
 
 
 
@@ -36,6 +39,8 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final AIServiceClient aiServiceClient;
+    private final AuditLogRepository auditLogRepository;
+
 
     @Value("${app.storage.path}")
     private String storagePath;
@@ -52,9 +57,12 @@ public class DocumentService {
     // Allowed file types
     private static final String[] ALLOWED_TYPES = {"application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"};
 
-    public DocumentService(DocumentRepository documentRepository, AIServiceClient aiServiceClient) {
+    public DocumentService(DocumentRepository documentRepository,
+                           AIServiceClient aiServiceClient,
+                           AuditLogRepository auditLogRepository) {
         this.documentRepository = documentRepository;
         this.aiServiceClient = aiServiceClient;
+        this.auditLogRepository = auditLogRepository;
     }
 
     @Transactional
@@ -197,6 +205,139 @@ public class DocumentService {
         return response;
     }
 
+    @Transactional(readOnly = true)
+    public DocumentResponseDTO getDocumentById(Long id) {
+        Document document = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+        return DocumentResponseDTO.fromEntity(document);
+    }
+
+    @Transactional
+    public void deleteDocument(Long id, String adminEmail) {
+        // 1. Find the document — throws 404 if not found
+        Document document = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+
+        String filename = document.getFilename();
+        String filePath = document.getStoragePath();
+
+        // 2. Delete physical file from disk
+        try {
+            Path fileToDelete = Paths.get(filePath);
+            boolean deleted = Files.deleteIfExists(fileToDelete);
+            if (deleted) {
+                logger.info("Physical file deleted from disk: {}", filePath);
+            } else {
+                logger.warn("Physical file not found on disk (already missing?): {}", filePath);
+            }
+        } catch (IOException e) {
+            // Log warning but DO NOT stop the deletion process
+            logger.warn("Could not delete physical file at path: {}. Reason: {}", filePath, e.getMessage());
+        }
+
+        // 3. Call FastAPI to remove chunks from ChromaDB (best-effort, never blocks deletion)
+        aiServiceClient.deleteDocumentChunks(id);
+
+        // 4. Create audit log entry
+        AuditLog auditLog = new AuditLog();
+        auditLog.setEntityType("DOCUMENT");
+        auditLog.setEntityId(id);
+        auditLog.setAction("DELETE");
+        auditLog.setPerformedBy(adminEmail);
+        auditLog.setDetails("Document deleted: " + filename);
+        auditLogRepository.save(auditLog);
+
+        // 5. Delete metadata from PostgreSQL
+        documentRepository.delete(document);
+
+        logger.info("Document ID: {} ('{}') deleted by {}", id, filename, adminEmail);
+    }
+
+
+    @Transactional
+    public DocumentResponseDTO replaceDocument(Long id, MultipartFile newFile, String adminEmail) {
+        // 1. Find the document — throws 404 if not found
+        Document document = documentRepository.findById(id)
+                .orElseThrow(() -> new DocumentNotFoundException(id));
+
+        // 2. Validate the new file (same rules as upload)
+        validateFileType(newFile);
+        validateFileSize(newFile);
+
+        String oldFilePath = document.getStoragePath();
+        String oldFilename = document.getFilename();
+
+        // 3. Delete old physical file from disk
+        try {
+            Path oldFile = Paths.get(oldFilePath);
+            boolean deleted = Files.deleteIfExists(oldFile);
+            if (deleted) {
+                logger.info("Old physical file deleted from disk: {}", oldFilePath);
+            } else {
+                logger.warn("Old physical file not found on disk (already missing?): {}", oldFilePath);
+            }
+        } catch (IOException e) {
+            logger.warn("Could not delete old physical file at path: {}. Reason: {}", oldFilePath, e.getMessage());
+        }
+
+        // 4. Save new file to disk (same directory structure as upload)
+        String uniqueFilename = generateUniqueFilename(newFile.getOriginalFilename());
+        String datePath = generateDatePath();
+        String fullStoragePath = storagePath + "/" + datePath;
+        createStorageDirectory(fullStoragePath);
+
+        Path newFilePath = Paths.get(fullStoragePath, uniqueFilename);
+        try {
+            Files.copy(newFile.getInputStream(), newFilePath);
+            logger.info("New file saved to disk: {}", newFilePath);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to save new file to disk: " + e.getMessage(), e);
+        }
+
+        // 5. Call FastAPI to remove old chunks from ChromaDB
+        aiServiceClient.deleteDocumentChunks(id);
+
+        // 6. Update document metadata in PostgreSQL
+        document.setFilename(newFile.getOriginalFilename());
+        document.setStoragePath(fullStoragePath + "/" + uniqueFilename);
+        document.setFileType(getFileExtension(newFile.getOriginalFilename()));
+        document.setFileSize(newFile.getSize());
+        document.setStatus(Document.DocumentStatus.PENDING);
+
+        Document updatedDocument = documentRepository.save(document);
+        entityManager.flush();
+
+        logger.info("Document ID: {} replaced by {}. Status reset to PENDING.", id, adminEmail);
+
+        // 7. Create audit log entry
+        AuditLog auditLog = new AuditLog();
+        auditLog.setEntityType("DOCUMENT");
+        auditLog.setEntityId(id);
+        auditLog.setAction("REPLACE");
+        auditLog.setPerformedBy(adminEmail);
+        auditLog.setDetails("Document replaced: " + oldFilename + " → " + newFile.getOriginalFilename());
+        auditLogRepository.save(auditLog);
+
+        // 8. Trigger AI processing AFTER transaction commits
+        final Document finalUpdatedDocument = updatedDocument;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                Path absolutePath = Paths.get(finalUpdatedDocument.getStoragePath()).toAbsolutePath();
+                boolean aiTriggered = aiServiceClient.triggerDocumentProcessing(
+                        finalUpdatedDocument.getId(),
+                        absolutePath.toString()
+                );
+                if (aiTriggered) {
+                    logger.info("AI reprocessing triggered successfully for replaced document ID: {}", finalUpdatedDocument.getId());
+                } else {
+                    logger.warn("AI reprocessing could not be triggered for document ID: {}. Document remains in PENDING state.", finalUpdatedDocument.getId());
+                }
+            }
+        });
+
+        return DocumentResponseDTO.fromEntity(updatedDocument);
+    }
     /**
      * Updates the status of a document.
      * This method is called by the AI service after processing completes.
