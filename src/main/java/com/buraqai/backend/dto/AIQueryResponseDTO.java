@@ -16,6 +16,16 @@ public class AIQueryResponseDTO {
     @JsonProperty("confidence_score")
     private Double confidenceScore;
 
+    @JsonProperty("language_detected")
+    private String languageDetected;
+
+    @JsonProperty("should_create_ticket")
+    private Boolean shouldCreateTicket;
+
+    // Placeholder for BURAQ-27 — will be populated when ticket is created
+    @JsonProperty("ticket_created")
+    private Boolean ticketCreated = false;
+
     // Default constructor (required for JSON deserialization)
     public AIQueryResponseDTO() {}
 
@@ -34,4 +44,13 @@ public class AIQueryResponseDTO {
 
     public Double getConfidenceScore() { return confidenceScore; }
     public void setConfidenceScore(Double confidenceScore) { this.confidenceScore = confidenceScore; }
+
+    public String getLanguageDetected() { return languageDetected; }
+    public void setLanguageDetected(String languageDetected) { this.languageDetected = languageDetected; }
+
+    public Boolean getShouldCreateTicket() { return shouldCreateTicket; }
+    public void setShouldCreateTicket(Boolean shouldCreateTicket) { this.shouldCreateTicket = shouldCreateTicket; }
+
+    public Boolean getTicketCreated() { return ticketCreated; }
+    public void setTicketCreated(Boolean ticketCreated) { this.ticketCreated = ticketCreated; }
 }
