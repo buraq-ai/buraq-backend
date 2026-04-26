@@ -26,6 +26,9 @@ public class AIQueryResponseDTO {
     @JsonProperty("ticket_created")
     private Boolean ticketCreated = false;
 
+    @JsonProperty("ticket_id")
+    private Long ticketId;
+
     // Default constructor (required for JSON deserialization)
     public AIQueryResponseDTO() {}
 
@@ -53,4 +56,7 @@ public class AIQueryResponseDTO {
 
     public Boolean getTicketCreated() { return ticketCreated; }
     public void setTicketCreated(Boolean ticketCreated) { this.ticketCreated = ticketCreated; }
+
+    public Long getTicketId() { return ticketId; }
+    public void setTicketId(Long ticketId) { this.ticketId = ticketId; }
 }

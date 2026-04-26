@@ -45,7 +45,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/employee/**").hasAnyRole("EMPLOYEE", "SUPPORT_AGENT", "ADMIN", "SYSTEM_ADMIN")
 
                         // Support Agent or higher
-                        .requestMatchers("/api/tickets/**").hasAnyRole("SUPPORT_AGENT", "ADMIN", "SYSTEM_ADMIN")
+                        .requestMatchers("/api/tickets/**").hasAnyRole("EMPLOYEE", "SUPPORT_AGENT", "ADMIN", "SYSTEM_ADMIN")
 
                         // Admin or System Admin only
                         .requestMatchers("/api/documents/**").hasAnyRole("ADMIN", "SYSTEM_ADMIN")
