@@ -54,6 +54,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
+    // Handles ticket not found → 404 Not Found
+    @ExceptionHandler(TicketNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleTicketNotFound(TicketNotFoundException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 404);
+        error.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    // Handles assignment to non-agent user → 400 Bad Request
+    @ExceptionHandler(InvalidAssignmentException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidAssignment(InvalidAssignmentException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 400);
+        error.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     // Handles admin trying to deactivate themselves → 400 Bad Request
     @ExceptionHandler(CannotDeactivateSelfException.class)
     public ResponseEntity<Map<String, Object>> handleCannotDeactivateSelf(CannotDeactivateSelfException ex) {

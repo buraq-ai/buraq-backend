@@ -16,6 +16,14 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
+import com.buraqai.backend.dto.PaginatedResponseDTO;
+import com.buraqai.backend.model.TicketStatus;
+import org.springframework.data.domain.Page;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import com.buraqai.backend.dto.AssignTicketRequestDTO;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -97,6 +105,111 @@ public class TicketController {
         return ResponseEntity.ok(result);
     }
 
+
+    /**
+     * Get tickets assigned to the currently authenticated support agent.
+     * Supports optional filtering by status and date range, with pagination.
+     *
+     * Access: ROLE_SUPPORT_AGENT, ROLE_SYSTEM_ADMIN
+     */
+    @GetMapping("/assigned")
+    @PreAuthorize("hasAnyRole('ROLE_SUPPORT_AGENT', 'ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<PaginatedResponseDTO<TicketResponseDTO>> getAssignedTickets(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        String currentUserEmail = getCurrentUserEmail();
+
+        // Convert status string to enum (null-safe)
+        TicketStatus statusEnum = null;
+        if (status != null && !status.isEmpty()) {
+            statusEnum = TicketStatus.valueOf(status.toUpperCase());
+        }
+
+        // Convert LocalDate to LocalDateTime (start of day / end of day)
+        LocalDateTime fromDateTime = (fromDate != null) ? fromDate.atStartOfDay() : null;
+        LocalDateTime toDateTime = (toDate != null) ? toDate.atTime(LocalTime.MAX) : null;
+
+        PaginatedResponseDTO<TicketResponseDTO> response =
+                ticketService.getAssignedTickets(currentUserEmail, statusEnum, fromDateTime, toDateTime, page, size);
+
+        logger.info("Assigned tickets retrieved | agent={} | totalElements={} | page={}",
+                currentUserEmail, response.getTotalElements(), page);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get all tickets in the system.
+     * Only accessible by System Admin.
+     * Supports optional filtering by status and date range, with pagination.
+     *
+     * Access: ROLE_SYSTEM_ADMIN only
+     */
+    /**
+     * Get all tickets in the system.
+     * Only accessible by System Admin.
+     * Supports optional filtering by status and date range, with pagination.
+     *
+     * Access: ROLE_SYSTEM_ADMIN only
+     */
+    @GetMapping("/all")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<PaginatedResponseDTO<TicketResponseDTO>> getAllTickets(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) LocalDate fromDate,
+            @RequestParam(required = false) LocalDate toDate,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        // Convert status string to enum (null-safe)
+        TicketStatus statusEnum = null;
+        if (status != null && !status.isEmpty()) {
+            statusEnum = TicketStatus.valueOf(status.toUpperCase());
+        }
+
+        // Convert LocalDate to LocalDateTime (start of day / end of day)
+        LocalDateTime fromDateTime = (fromDate != null) ? fromDate.atStartOfDay() : null;
+        LocalDateTime toDateTime = (toDate != null) ? toDate.atTime(LocalTime.MAX) : null;
+
+        PaginatedResponseDTO<TicketResponseDTO> response =
+                ticketService.getAllTickets(statusEnum, fromDateTime, toDateTime, page, size);
+
+        logger.info("All tickets retrieved by admin | totalElements={} | page={}",
+                response.getTotalElements(), page);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Assign a ticket to a support agent.
+     * Only accessible by System Admin.
+     * Changes ticket status from OPEN to IN_PROGRESS.
+     *
+     * Access: ROLE_SYSTEM_ADMIN only
+     */
+    @PatchMapping("/{id}/assign")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<TicketResponseDTO> assignTicket(
+            @PathVariable Long id,
+            @Valid @RequestBody AssignTicketRequestDTO request
+    ) {
+        String currentUserEmail = getCurrentUserEmail();
+
+        TicketResponseDTO updatedTicket = ticketService.assignTicket(
+                id,
+                request.getAgentEmail(),
+                currentUserEmail
+        );
+
+        logger.info("Ticket assigned via API | ticketId={} | assignedTo={} | assignedBy={}",
+                id, request.getAgentEmail(), currentUserEmail);
+
+        return ResponseEntity.ok(updatedTicket);
+    }
     /**
      * Converts a Ticket entity to a TicketResponseDTO.
      */
