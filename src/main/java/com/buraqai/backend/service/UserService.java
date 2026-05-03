@@ -16,6 +16,10 @@ import org.springframework.stereotype.Service;
 import com.buraqai.backend.exception.CannotDeactivateSelfException;
 import com.buraqai.backend.exception.UserAlreadyInactiveException;
 import java.util.List;
+import com.buraqai.backend.dto.PaginatedResponseDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 
 @Service
@@ -193,8 +197,60 @@ public class UserService {
         );
     }
 
-    public List<UserResponseDTO> getAllUsers() {
-        return userRepository.findAll()
+    public PaginatedResponseDTO<UserResponseDTO> searchUsers(
+            String search,
+            String role,
+            Boolean active,
+            int page,
+            int size) {
+
+        // 1. Build Pageable object (Spring uses 0-based page index)
+        Pageable pageable = PageRequest.of(page, size);
+
+        // 2. Determine which repository query to call based on provided filters
+        Page<User> userPage;
+
+        boolean hasSearch = search != null && !search.isBlank();
+        boolean hasRole = role != null && !role.isBlank();
+        boolean hasActive = active != null;
+
+        if (hasSearch && hasRole && hasActive) {
+            // All three filters provided
+            userPage = userRepository
+                    .findByFullNameContainingIgnoreCaseOrEmailContainingIgnoreCaseAndRoleAndActive(
+                            search, search, UserRole.valueOf(role), active, pageable);
+        } else if (hasSearch && hasRole) {
+            // Search + Role (need to filter active manually since no dedicated method)
+            userPage = userRepository
+                    .findByFullNameContainingIgnoreCaseOrEmailContainingIgnoreCaseAndRole(
+                            search, search, UserRole.valueOf(role), pageable);
+        } else if (hasSearch && hasActive) {
+            // Search + Active (filter manually since no dedicated method)
+            userPage = userRepository
+                    .findByFullNameContainingIgnoreCaseOrEmailContainingIgnoreCaseAndActive(
+                            search, search, active, pageable);
+        } else if (hasRole && hasActive) {
+            // Role + Active (filter manually since no dedicated method)
+            userPage = userRepository.findByRoleAndActive(
+                    UserRole.valueOf(role), active, pageable);
+        } else if (hasSearch) {
+            // Search only
+            userPage = userRepository
+                    .findByFullNameContainingIgnoreCaseOrEmailContainingIgnoreCase(
+                            search, search, pageable);
+        } else if (hasRole) {
+            // Role only
+            userPage = userRepository.findByRole(UserRole.valueOf(role), pageable);
+        } else if (hasActive) {
+            // Active only
+            userPage = userRepository.findByActive(active, pageable);
+        } else {
+            // No filters — return all users paginated
+            userPage = userRepository.findAll(pageable);
+        }
+
+        // 3. Map each User entity to UserResponseDTO
+        List<UserResponseDTO> content = userPage.getContent()
                 .stream()
                 .map(user -> new UserResponseDTO(
                         user.getId(),
@@ -205,5 +261,13 @@ public class UserService {
                         user.getCreatedAt()
                 ))
                 .toList();
+
+        // 4. Build and return PaginatedResponseDTO
+        return new PaginatedResponseDTO<>(
+                content,                       // List<UserResponseDTO>
+                userPage.getTotalElements(),   // total records matching filters
+                userPage.getTotalPages(),      // how many pages total
+                userPage.getNumber()           // current page index (0-based)
+        );
     }
 }

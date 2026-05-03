@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.List;
+import com.buraqai.backend.dto.PaginatedResponseDTO;
+import org.springframework.data.domain.Page;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -50,11 +52,18 @@ public class UserController {
         return ResponseEntity.ok(updatedUser);
     }
 
-    // GET /api/admin/users — fetch all users
+    // GET /api/admin/users — fetch users with optional search, filters, and pagination
     @GetMapping("/users")
-    public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
-        List<UserResponseDTO> users = userService.getAllUsers();
-        return ResponseEntity.ok(users);
+    public ResponseEntity<PaginatedResponseDTO<UserResponseDTO>> getUsers(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) Boolean active,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        PaginatedResponseDTO<UserResponseDTO> response =
+                userService.searchUsers(search, role, active, page, size);
+        return ResponseEntity.ok(response);
     }
 
     // PATCH /api/admin/users/{id}/deactivate — deactivate a user
