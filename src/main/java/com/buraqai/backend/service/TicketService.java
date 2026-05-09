@@ -1,10 +1,8 @@
 package com.buraqai.backend.service;
 
 import com.buraqai.backend.dto.TicketResponseDTO;
-import com.buraqai.backend.model.Ticket;
-import com.buraqai.backend.model.TicketStatus;
-import com.buraqai.backend.model.TicketSource;
-import com.buraqai.backend.repository.TicketRepository;
+import com.buraqai.backend.model.*;
+import com.buraqai.backend.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,19 +12,17 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import java.util.List;
 import java.time.LocalDateTime;
-import com.buraqai.backend.model.AuditLog;
-import com.buraqai.backend.model.User;
-import com.buraqai.backend.model.UserRole;
-import com.buraqai.backend.repository.AuditLogRepository;
-import com.buraqai.backend.repository.UserRepository;
+
 import com.buraqai.backend.exception.TicketNotFoundException;
 import com.buraqai.backend.exception.InvalidAssignmentException;
 import com.buraqai.backend.dto.ConversationMessageDTO;
 import com.buraqai.backend.dto.TicketResponseRequestDTO;
-import com.buraqai.backend.model.TicketResponse;
-import com.buraqai.backend.repository.TicketResponseRepository;
 import com.buraqai.backend.exception.UnauthorizedTicketAccessException;
 import com.buraqai.backend.exception.TicketClosedException;
+import com.buraqai.backend.exception.InvalidStatusTransitionException;
+import com.buraqai.backend.dto.TicketStatusHistoryDTO;
+import com.buraqai.backend.model.TicketStatusHistory;
+import com.buraqai.backend.model.TicketStatusHistory;
 
 @Service
 public class TicketService {
@@ -38,14 +34,18 @@ public class TicketService {
     private final AuditLogRepository auditLogRepository;
     private final TicketResponseRepository ticketResponseRepository;
 
+    private final TicketStatusHistoryRepository ticketStatusHistoryRepository;
+
     public TicketService(TicketRepository ticketRepository,
                          UserRepository userRepository,
                          AuditLogRepository auditLogRepository,
-                         TicketResponseRepository ticketResponseRepository) {
+                         TicketResponseRepository ticketResponseRepository,
+                         TicketStatusHistoryRepository ticketStatusHistoryRepository) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.auditLogRepository = auditLogRepository;
         this.ticketResponseRepository = ticketResponseRepository;
+        this.ticketStatusHistoryRepository = ticketStatusHistoryRepository;
     }
 
     /**
@@ -191,7 +191,17 @@ public class TicketService {
 
         Ticket updatedTicket = ticketRepository.save(ticket);
 
-        // 4. Create audit log entry
+        // 4. Create TicketStatusHistory entry
+        TicketStatusHistory history = new TicketStatusHistory();
+        history.setTicket(ticket);
+        history.setPreviousStatus(TicketStatus.OPEN);
+        history.setNewStatus(TicketStatus.IN_PROGRESS);
+        history.setChangedBy(adminEmail);
+        history.setChangedAt(LocalDateTime.now());
+        history.setComment("Ticket assigned to " + agentEmail);
+        ticketStatusHistoryRepository.save(history);
+
+        // 5. Create audit log entry
         AuditLog auditLog = new AuditLog();
         auditLog.setEntityType("TICKET");
         auditLog.setEntityId(ticketId);
@@ -204,6 +214,143 @@ public class TicketService {
                 ticketId, agentEmail, adminEmail);
 
         return mapToDTO(updatedTicket);
+    }
+
+
+    /**
+     * Updates a ticket's status following the state machine rules.
+     *
+     * State machine:
+     *   OPEN → IN_PROGRESS  (handled by assignTicket)
+     *   IN_PROGRESS → CLOSED (agent or system admin)
+     *   CLOSED → OPEN        (system admin only — reopen)
+     *
+     * @param ticketId      The ID of the ticket
+     * @param newStatus     The desired new status
+     * @param changerEmail  The email of the person changing the status
+     * @param changerRole   The role of the person changing the status
+     * @param comment       Optional comment for the status change
+     * @return Updated TicketResponseDTO
+     * @throws TicketNotFoundException           if ticket doesn't exist
+     * @throws InvalidStatusTransitionException  if the transition is not allowed
+     */
+    @Transactional
+    public TicketResponseDTO updateTicketStatus(Long ticketId,
+                                                TicketStatus newStatus,
+                                                String changerEmail,
+                                                UserRole changerRole,
+                                                String comment) {
+        // 1. Find the ticket
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new TicketNotFoundException("Ticket not found with id: " + ticketId));
+
+        TicketStatus previousStatus = ticket.getStatus();
+
+        // 2. Authorize based on the type of transition
+        if (newStatus == TicketStatus.CLOSED) {
+            // Only assigned agent or system admin can close
+            boolean isAssignedAgent = changerEmail.equals(ticket.getAssignedTo());
+            boolean isSystemAdmin = changerRole == UserRole.ROLE_SYSTEM_ADMIN;
+
+            if (!isAssignedAgent && !isSystemAdmin) {
+                logger.warn("Unauthorized close attempt | ticketId={} | changer={} | role={}",
+                        ticketId, changerEmail, changerRole);
+                throw new UnauthorizedTicketAccessException(
+                        "Only the assigned agent or a system admin can close this ticket");
+            }
+        } else if (newStatus == TicketStatus.OPEN) {
+            // Only system admin can reopen
+            if (changerRole != UserRole.ROLE_SYSTEM_ADMIN) {
+                logger.warn("Unauthorized reopen attempt | ticketId={} | changer={} | role={}",
+                        ticketId, changerEmail, changerRole);
+                throw new UnauthorizedTicketAccessException(
+                        "Only a system admin can reopen a ticket");
+            }
+        }
+
+        // 3. Validate the transition is allowed by the state machine
+        boolean isValidTransition = false;
+
+        if (previousStatus == TicketStatus.IN_PROGRESS && newStatus == TicketStatus.CLOSED) {
+            isValidTransition = true;
+        } else if (previousStatus == TicketStatus.CLOSED && newStatus == TicketStatus.OPEN) {
+            isValidTransition = true;
+        }
+
+        if (!isValidTransition) {
+            throw new InvalidStatusTransitionException(previousStatus, newStatus);
+        }
+
+        // 4. Update the ticket
+        ticket.setStatus(newStatus);
+        ticket.setUpdatedAt(LocalDateTime.now());
+        Ticket updatedTicket = ticketRepository.save(ticket);
+
+        // 5. Create TicketStatusHistory entry
+        TicketStatusHistory history = new TicketStatusHistory();
+        history.setTicket(ticket);
+        history.setPreviousStatus(previousStatus);
+        history.setNewStatus(newStatus);
+        history.setChangedBy(changerEmail);
+        history.setChangedAt(LocalDateTime.now());
+        history.setComment(comment);
+        ticketStatusHistoryRepository.save(history);
+
+        // 6. Create audit log entry
+        AuditLog auditLog = new AuditLog();
+        auditLog.setEntityType("TICKET");
+        auditLog.setEntityId(ticketId);
+        auditLog.setAction("STATUS_CHANGE");
+        auditLog.setPerformedBy(changerEmail);
+        auditLog.setDetails("Status changed from " + previousStatus + " to " + newStatus
+                + " by " + changerEmail);
+        auditLogRepository.save(auditLog);
+
+        logger.info("Ticket status updated | ticketId={} | {} → {} | by={}",
+                ticketId, previousStatus, newStatus, changerEmail);
+
+        return mapToDTO(updatedTicket);
+    }
+
+    /**
+     * Retrieves the status change history for a ticket.
+     * Only the ticket owner, assigned agent, or system admin can view.
+     *
+     * @param ticketId       The ID of the ticket
+     * @param requesterEmail The email of the person requesting the history
+     * @param requesterRole  The role of the requester
+     * @return List of TicketStatusHistoryDTO sorted oldest first
+     * @throws TicketNotFoundException         if ticket doesn't exist
+     * @throws UnauthorizedTicketAccessException if requester is not authorized
+     */
+    public List<TicketStatusHistoryDTO> getTicketHistory(Long ticketId,
+                                                         String requesterEmail,
+                                                         UserRole requesterRole) {
+        // 1. Find the ticket — throw if not found
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new TicketNotFoundException("Ticket not found with id: " + ticketId));
+
+        // 2. Authorize: only ticket owner, assigned agent, or System Admin can view
+        boolean isTicketOwner = requesterEmail.equals(ticket.getCreatedBy());
+        boolean isAssignedAgent = requesterEmail.equals(ticket.getAssignedTo());
+        boolean isSystemAdmin = requesterRole == UserRole.ROLE_SYSTEM_ADMIN;
+
+        if (!isTicketOwner && !isAssignedAgent && !isSystemAdmin) {
+            throw new UnauthorizedTicketAccessException(
+                    "You are not authorized to view this ticket's history");
+        }
+
+        // 3. Fetch history sorted oldest first
+        List<TicketStatusHistory> history = ticketStatusHistoryRepository
+                .findByTicketIdOrderByChangedAtAsc(ticketId);
+
+        logger.info("Ticket history retrieved | ticketId={} | requester={} | entryCount={}",
+                ticketId, requesterEmail, history.size());
+
+        // 4. Convert to DTOs and return
+        return history.stream()
+                .map(this::mapHistoryToDTO)
+                .toList();
     }
 
     /**
@@ -404,6 +551,20 @@ public class TicketService {
         dto.setRespondedBy(response.getRespondedBy());
         dto.setRespondedAt(response.getRespondedAt());
         dto.setIsAgentResponse(response.getIsAgentResponse());
+        return dto;
+    }
+
+    /**
+     * Converts a TicketStatusHistory entity to a TicketStatusHistoryDTO.
+     */
+    private TicketStatusHistoryDTO mapHistoryToDTO(TicketStatusHistory history) {
+        TicketStatusHistoryDTO dto = new TicketStatusHistoryDTO();
+        dto.setId(history.getId());
+        dto.setPreviousStatus(history.getPreviousStatus());
+        dto.setNewStatus(history.getNewStatus());
+        dto.setChangedBy(history.getChangedBy());
+        dto.setChangedAt(history.getChangedAt());
+        dto.setComment(history.getComment());
         return dto;
     }
 }

@@ -27,6 +27,8 @@ import jakarta.validation.Valid;
 import com.buraqai.backend.dto.ConversationMessageDTO;
 import com.buraqai.backend.dto.TicketResponseRequestDTO;
 import com.buraqai.backend.model.UserRole;
+import com.buraqai.backend.dto.UpdateTicketStatusRequestDTO;
+import com.buraqai.backend.dto.TicketStatusHistoryDTO;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -224,6 +226,68 @@ public class TicketController {
                 id, request.getAgentEmail(), currentUserEmail);
 
         return ResponseEntity.ok(updatedTicket);
+    }
+
+    /**
+     * Update a ticket's status following the state machine rules.
+     * - IN_PROGRESS → CLOSED: assigned agent or system admin
+     * - CLOSED → OPEN: system admin only
+     *
+     * Access: Any authenticated user (service enforces specific authorization)
+     */
+    @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('ROLE_EMPLOYEE', 'ROLE_SUPPORT_AGENT', 'ROLE_ADMIN', 'ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<?> updateTicketStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateTicketStatusRequestDTO request) {
+        String currentUserEmail = getCurrentUserEmail();
+        UserRole currentUserRole = getCurrentUserRole();
+
+        // Convert status string to enum
+        TicketStatus newStatus;
+        try {
+            newStatus = TicketStatus.valueOf(request.getStatus().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Invalid status value: " + request.getStatus());
+        }
+
+        TicketResponseDTO updatedTicket = ticketService.updateTicketStatus(
+                id,
+                newStatus,
+                currentUserEmail,
+                currentUserRole,
+                request.getComment()
+        );
+
+        logger.info("Ticket status updated via API | ticketId={} | newStatus={} | by={}",
+                id, newStatus, currentUserEmail);
+
+        return ResponseEntity.ok(updatedTicket);
+    }
+
+    /**
+     * Get the status change history for a ticket.
+     * Only the ticket owner, assigned agent, or system admin can view.
+     *
+     * Access: Any authenticated user (service enforces specific authorization)
+     */
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAnyRole('ROLE_EMPLOYEE', 'ROLE_SUPPORT_AGENT', 'ROLE_ADMIN', 'ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<?> getTicketHistory(@PathVariable Long id) {
+        String currentUserEmail = getCurrentUserEmail();
+        UserRole currentUserRole = getCurrentUserRole();
+
+        List<TicketStatusHistoryDTO> history = ticketService.getTicketHistory(
+                id,
+                currentUserEmail,
+                currentUserRole
+        );
+
+        logger.info("Ticket history retrieved via API | ticketId={} | by={} | entries={}",
+                id, currentUserEmail, history.size());
+
+        return ResponseEntity.ok(history);
     }
     /**
      * Converts a Ticket entity to a TicketResponseDTO.

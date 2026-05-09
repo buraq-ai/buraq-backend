@@ -107,6 +107,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    // Handles invalid ticket status transitions → 400 Bad Request
+    @ExceptionHandler(InvalidStatusTransitionException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidStatusTransition(InvalidStatusTransitionException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 400);
+        error.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     // Handles deactivated user attempting to log in → 403 Forbidden
     @ExceptionHandler(AccountDeactivatedException.class)
     public ResponseEntity<Map<String, Object>> handleAccountDeactivated(AccountDeactivatedException ex) {
