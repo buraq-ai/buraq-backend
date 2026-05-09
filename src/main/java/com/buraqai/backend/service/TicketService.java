@@ -21,6 +21,12 @@ import com.buraqai.backend.repository.AuditLogRepository;
 import com.buraqai.backend.repository.UserRepository;
 import com.buraqai.backend.exception.TicketNotFoundException;
 import com.buraqai.backend.exception.InvalidAssignmentException;
+import com.buraqai.backend.dto.ConversationMessageDTO;
+import com.buraqai.backend.dto.TicketResponseRequestDTO;
+import com.buraqai.backend.model.TicketResponse;
+import com.buraqai.backend.repository.TicketResponseRepository;
+import com.buraqai.backend.exception.UnauthorizedTicketAccessException;
+import com.buraqai.backend.exception.TicketClosedException;
 
 @Service
 public class TicketService {
@@ -30,14 +36,16 @@ public class TicketService {
     private final TicketRepository ticketRepository;
     private final UserRepository userRepository;
     private final AuditLogRepository auditLogRepository;
+    private final TicketResponseRepository ticketResponseRepository;
 
-    // Constructor injection — Spring wires all dependencies automatically
     public TicketService(TicketRepository ticketRepository,
                          UserRepository userRepository,
-                         AuditLogRepository auditLogRepository) {
+                         AuditLogRepository auditLogRepository,
+                         TicketResponseRepository ticketResponseRepository) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.auditLogRepository = auditLogRepository;
+        this.ticketResponseRepository = ticketResponseRepository;
     }
 
     /**
@@ -257,6 +265,121 @@ public class TicketService {
     /**
      * Converts a Ticket entity to a TicketResponseDTO.
      */
+
+    /**
+     * Adds a response to a ticket's conversation thread.
+     *
+     * @param ticketId      The ID of the ticket
+     * @param requestDTO    Contains the response text
+     * @param responderEmail The email of the person responding
+     * @param responderRole  The role of the person responding
+     * @return ConversationMessageDTO with the saved response
+     * @throws TicketNotFoundException         if ticket doesn't exist
+     * @throws UnauthorizedTicketAccessException if responder is not authorized
+     * @throws TicketClosedException           if ticket is CLOSED
+     */
+    @Transactional
+    public ConversationMessageDTO addResponse(Long ticketId,
+                                              TicketResponseRequestDTO requestDTO,
+                                              String responderEmail,
+                                              UserRole responderRole) {
+        // 1. Find the ticket — throw if not found
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new TicketNotFoundException("Ticket not found with id: " + ticketId));
+
+        // 2. Validate the ticket is not CLOSED
+        if (ticket.getStatus() == TicketStatus.CLOSED) {
+            throw new TicketClosedException("Cannot add response to a closed ticket");
+        }
+
+        // 3. Authorize the responder and determine if this is an agent response
+        boolean isAgentResponse;
+
+        boolean isTicketOwner = responderEmail.equals(ticket.getCreatedBy());
+        boolean isAssignedAgent = responderEmail.equals(ticket.getAssignedTo());
+        boolean isSystemAdmin = responderRole == UserRole.ROLE_SYSTEM_ADMIN;
+
+        if (isTicketOwner) {
+            // Employee responding to their own ticket
+            isAgentResponse = false;
+        } else if (isAssignedAgent || isSystemAdmin) {
+            // Assigned agent or System Admin responding
+            isAgentResponse = true;
+        } else {
+            throw new UnauthorizedTicketAccessException(
+                    "You are not authorized to respond to this ticket");
+        }
+
+        // 4. Create and save the TicketResponse entity
+        TicketResponse response = new TicketResponse();
+        response.setTicket(ticket);
+        response.setResponseText(requestDTO.getResponseText());
+        response.setRespondedBy(responderEmail);
+        response.setIsAgentResponse(isAgentResponse);
+
+        TicketResponse savedResponse = ticketResponseRepository.save(response);
+
+        // 5. Update the ticket's updatedAt timestamp
+        ticket.setUpdatedAt(LocalDateTime.now());
+        ticketRepository.save(ticket);
+
+        // 6. Create audit log entry
+        AuditLog auditLog = new AuditLog();
+        auditLog.setEntityType("TICKET");
+        auditLog.setEntityId(ticketId);
+        auditLog.setAction("RESPONSE_ADDED");
+        auditLog.setPerformedBy(responderEmail);
+        auditLog.setDetails("Response added by " + responderEmail);
+        auditLogRepository.save(auditLog);
+
+        logger.info("Response added to ticket | ticketId={} | responder={} | isAgentResponse={}",
+                ticketId, responderEmail, isAgentResponse);
+
+        // 7. Convert to DTO and return
+        return mapResponseToDTO(savedResponse);
+    }
+
+    /**
+     * Retrieves the conversation history for a ticket.
+     *
+     * @param ticketId       The ID of the ticket
+     * @param requesterEmail The email of the person requesting the conversation
+     * @param requesterRole  The role of the requester
+     * @return List of ConversationMessageDTO sorted oldest first
+     * @throws TicketNotFoundException         if ticket doesn't exist
+     * @throws UnauthorizedTicketAccessException if requester is not authorized to view
+     */
+    public List<ConversationMessageDTO> getTicketResponses(Long ticketId,
+                                                           String requesterEmail,
+                                                           UserRole requesterRole) {
+        // 1. Find the ticket — throw if not found
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new TicketNotFoundException("Ticket not found with id: " + ticketId));
+
+        // 2. Authorize: only ticket owner, assigned agent, or System Admin can view
+        boolean isTicketOwner = requesterEmail.equals(ticket.getCreatedBy());
+        boolean isAssignedAgent = requesterEmail.equals(ticket.getAssignedTo());
+        boolean isSystemAdmin = requesterRole == UserRole.ROLE_SYSTEM_ADMIN;
+
+        if (!isTicketOwner && !isAssignedAgent && !isSystemAdmin) {
+            throw new UnauthorizedTicketAccessException(
+                    "You are not authorized to view this conversation");
+        }
+
+        // 3. Fetch responses sorted oldest first
+        List<TicketResponse> responses = ticketResponseRepository
+                .findByTicketIdOrderByRespondedAtAsc(ticketId);
+
+        logger.info("Conversation retrieved | ticketId={} | requester={} | messageCount={}",
+                ticketId, requesterEmail, responses.size());
+
+        // 4. Convert to DTOs and return
+        return responses.stream()
+                .map(this::mapResponseToDTO)
+                .toList();
+    }
+
+
     private TicketResponseDTO mapToDTO(Ticket ticket) {
         TicketResponseDTO dto = new TicketResponseDTO();
         dto.setId(ticket.getId());
@@ -268,6 +391,19 @@ public class TicketService {
         dto.setAssignedTo(ticket.getAssignedTo());
         dto.setCreatedAt(ticket.getCreatedAt());
         dto.setUpdatedAt(ticket.getUpdatedAt());
+        return dto;
+    }
+
+    /**
+     * Converts a TicketResponse entity to a ConversationMessageDTO.
+     */
+    private ConversationMessageDTO mapResponseToDTO(TicketResponse response) {
+        ConversationMessageDTO dto = new ConversationMessageDTO();
+        dto.setId(response.getId());
+        dto.setResponseText(response.getResponseText());
+        dto.setRespondedBy(response.getRespondedBy());
+        dto.setRespondedAt(response.getRespondedAt());
+        dto.setIsAgentResponse(response.getIsAgentResponse());
         return dto;
     }
 }

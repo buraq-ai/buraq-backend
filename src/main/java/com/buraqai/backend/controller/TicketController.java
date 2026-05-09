@@ -24,6 +24,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import com.buraqai.backend.dto.AssignTicketRequestDTO;
 import jakarta.validation.Valid;
+import com.buraqai.backend.dto.ConversationMessageDTO;
+import com.buraqai.backend.dto.TicketResponseRequestDTO;
+import com.buraqai.backend.model.UserRole;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -45,6 +48,18 @@ public class TicketController {
     private String getCurrentUserEmail() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         return authentication.getName(); // In JWT, getName() typically returns the subject (email)
+    }
+
+    /**
+     * Get the role of the currently authenticated user from the JWT token.
+     */
+    private UserRole getCurrentUserRole() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String roleString = authentication.getAuthorities().stream()
+                .findFirst()
+                .map(Object::toString)
+                .orElse("ROLE_EMPLOYEE");
+        return UserRole.valueOf(roleString);
     }
 
     /**
@@ -213,6 +228,55 @@ public class TicketController {
     /**
      * Converts a Ticket entity to a TicketResponseDTO.
      */
+    /**
+     * Add a response to a ticket's conversation thread.
+     * Requires authentication — service layer validates authorization.
+     *
+     * Access: Any authenticated user (service enforces specific authorization)
+     */
+    @PostMapping("/{id}/responses")
+    @PreAuthorize("hasAnyRole('ROLE_EMPLOYEE', 'ROLE_SUPPORT_AGENT', 'ROLE_ADMIN', 'ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<?> addResponse(@PathVariable Long id,
+                                         @Valid @RequestBody TicketResponseRequestDTO request) {
+        String currentUserEmail = getCurrentUserEmail();
+        UserRole currentUserRole = getCurrentUserRole();
+
+        ConversationMessageDTO response = ticketService.addResponse(
+                id,
+                request,
+                currentUserEmail,
+                currentUserRole
+        );
+
+        logger.info("Response added via API | ticketId={} | responder={} | role={}",
+                id, currentUserEmail, currentUserRole);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * Get the conversation history for a ticket.
+     * Requires authentication — service layer validates authorization.
+     *
+     * Access: Any authenticated user (service enforces specific authorization)
+     */
+    @GetMapping("/{id}/responses")
+    @PreAuthorize("hasAnyRole('ROLE_EMPLOYEE', 'ROLE_SUPPORT_AGENT', 'ROLE_ADMIN', 'ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<?> getResponses(@PathVariable Long id) {
+        String currentUserEmail = getCurrentUserEmail();
+        UserRole currentUserRole = getCurrentUserRole();
+
+        List<ConversationMessageDTO> responses = ticketService.getTicketResponses(
+                id,
+                currentUserEmail,
+                currentUserRole
+        );
+
+        logger.info("Responses retrieved via API | ticketId={} | requester={} | count={}",
+                id, currentUserEmail, responses.size());
+
+        return ResponseEntity.ok(responses);
+    }
     private TicketResponseDTO mapToDTO(Ticket ticket) {
         TicketResponseDTO dto = new TicketResponseDTO();
         dto.setId(ticket.getId());

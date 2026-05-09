@@ -63,6 +63,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
+    // Handles unauthorized ticket access → 403 Forbidden
+    @ExceptionHandler(UnauthorizedTicketAccessException.class)
+    public ResponseEntity<Map<String, Object>> handleUnauthorizedTicketAccess(UnauthorizedTicketAccessException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 403);
+        error.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    // Handles response on closed ticket → 400 Bad Request
+    @ExceptionHandler(TicketClosedException.class)
+    public ResponseEntity<Map<String, Object>> handleTicketClosed(TicketClosedException ex) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("status", 400);
+        error.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     // Handles assignment to non-agent user → 400 Bad Request
     @ExceptionHandler(InvalidAssignmentException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidAssignment(InvalidAssignmentException ex) {

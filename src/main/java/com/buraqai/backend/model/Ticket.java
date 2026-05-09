@@ -79,6 +79,10 @@ public class Ticket {
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
     public String getOriginalQuestion() { return originalQuestion; }
 
     public void setOriginalQuestion(String originalQuestion) { this.originalQuestion = originalQuestion; }
