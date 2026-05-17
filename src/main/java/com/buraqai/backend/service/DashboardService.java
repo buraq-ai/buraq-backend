@@ -6,6 +6,7 @@ import com.buraqai.backend.dto.TicketStatsDTO;
 import com.buraqai.backend.model.Ticket;
 import com.buraqai.backend.model.TicketStatus;
 import com.buraqai.backend.model.TicketStatusHistory;
+import com.buraqai.backend.repository.AIQueryLogRepository;
 import com.buraqai.backend.repository.TicketRepository;
 import com.buraqai.backend.repository.TicketStatusHistoryRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,9 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
+import com.buraqai.backend.dto.AIStatsDTO;
+import com.buraqai.backend.dto.DailyQueryCountDTO;
+import com.buraqai.backend.model.AIQueryLog;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +27,7 @@ public class DashboardService {
 
     private final TicketRepository ticketRepository;
     private final TicketStatusHistoryRepository statusHistoryRepository;
+    private final AIQueryLogRepository aiQueryLogRepository;
 
     private static final int SLA_HOURS = 48;
     private static final int DEFAULT_DAYS = 30;
@@ -114,6 +119,99 @@ public class DashboardService {
         return agentStats;
     }
 
+
+    /**
+     * Aggregates AI query metrics for the System Admin dashboard.
+     * Includes totals, rates, response times, provider/language breakdowns,
+     * daily query counts, and estimated OpenAI cost.
+     *
+     * @return AIStatsDTO with all aggregated metrics
+     */
+    public AIStatsDTO getAIStats() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime thirtyDaysAgo = now.minusDays(30);
+
+        // --- Total counts ---
+        long totalQueries = aiQueryLogRepository.count();
+        long queriesWithAnswer = aiQueryLogRepository.countByHasAnswer(true);
+        long queriesWithoutAnswer = aiQueryLogRepository.countByHasAnswer(false);
+
+        // --- Answer rate (percentage) ---
+        double answerRate = (totalQueries > 0)
+                ? Math.round((queriesWithAnswer * 100.0 / totalQueries) * 10.0) / 10.0
+                : 0.0;
+
+        // --- Average response time ---
+        Long avgResponseTime = aiQueryLogRepository.findAverageResponseTimeMs();
+        long averageResponseTimeMs = (avgResponseTime != null) ? avgResponseTime : 0L;
+
+        // --- Average confidence score ---
+        Double avgConfidence = aiQueryLogRepository.findAverageConfidenceScore();
+        double averageConfidenceScore = (avgConfidence != null)
+                ? Math.round(avgConfidence * 100.0) / 100.0
+                : 0.0;
+
+        // --- Provider breakdown ---
+        Map<String, Long> providerBreakdown = new HashMap<>();
+        List<Object[]> providerCounts = aiQueryLogRepository.countByProvider();
+        for (Object[] row : providerCounts) {
+            String provider = (String) row[0];
+            Long count = (Long) row[1];
+            providerBreakdown.put(provider, count);
+        }
+
+        // --- Language breakdown ---
+        Map<String, Long> languageBreakdown = new HashMap<>();
+        List<Object[]> languageCounts = aiQueryLogRepository.countByLanguage();
+        for (Object[] row : languageCounts) {
+            String language = (String) row[0];
+            Long count = (Long) row[1];
+            languageBreakdown.put(language, count);
+        }
+
+        // --- Queries per day (last 30 days) ---
+        List<DailyQueryCountDTO> queriesPerDay = new ArrayList<>();
+        List<Object[]> dailyCounts = aiQueryLogRepository.countQueriesPerDay(thirtyDaysAgo, now);
+
+        // Build a map of date -> count for quick lookup
+        Map<LocalDate, Long> countByDate = new HashMap<>();
+        for (Object[] row : dailyCounts) {
+            // The date comes back as java.sql.Date from function('date', ...)
+            LocalDate date = ((java.sql.Date) row[0]).toLocalDate();
+            Long count = (Long) row[1];
+            countByDate.put(date, count);
+        }
+
+        // Fill in all 30 days, even those with 0 queries (for a continuous line chart)
+        LocalDate current = thirtyDaysAgo.toLocalDate();
+        LocalDate end = now.toLocalDate();
+        while (!current.isAfter(end)) {
+            DailyQueryCountDTO dto = new DailyQueryCountDTO();
+            dto.setDate(current);
+            dto.setCount(countByDate.getOrDefault(current, 0L));
+            queriesPerDay.add(dto);
+            current = current.plusDays(1);
+        }
+
+        // --- Estimated OpenAI cost ($0.002 per query) ---
+        long openaiCount = aiQueryLogRepository.countByLlmProvider("OPENAI");
+        double estimatedOpenAICost = Math.round(openaiCount * 0.002 * 100.0) / 100.0;
+
+        // --- Build and return DTO ---
+        AIStatsDTO stats = new AIStatsDTO();
+        stats.setTotalQueries(totalQueries);
+        stats.setQueriesWithAnswer(queriesWithAnswer);
+        stats.setQueriesWithoutAnswer(queriesWithoutAnswer);
+        stats.setAnswerRate(answerRate);
+        stats.setAverageResponseTimeMs(averageResponseTimeMs);
+        stats.setAverageConfidenceScore(averageConfidenceScore);
+        stats.setQueriesPerDay(queriesPerDay);
+        stats.setProviderBreakdown(providerBreakdown);
+        stats.setLanguageBreakdown(languageBreakdown);
+        stats.setEstimatedOpenAICost(estimatedOpenAICost);
+
+        return stats;
+    }
     // --- Private helper methods ---
 
     private long countByStatus(List<Ticket> tickets, TicketStatus status) {

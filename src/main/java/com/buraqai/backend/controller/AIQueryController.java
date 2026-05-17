@@ -53,7 +53,7 @@ public class AIQueryController {
         );
 
         // Step 1: Forward the question to FastAPI
-        AIQueryResponseDTO response = aiQueryService.queryAI(request);
+        AIQueryResponseDTO response = aiQueryService.queryAI(request, userEmail);
 
         // Step 2: If AI cannot answer and ticket creation is requested, create a ticket
         if (response.getShouldCreateTicket() != null && response.getShouldCreateTicket()

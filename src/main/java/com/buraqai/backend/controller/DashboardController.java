@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import com.buraqai.backend.dto.AIStatsDTO;
 
 @RestController
 @RequestMapping("/api/dashboard")
@@ -57,5 +58,24 @@ public class DashboardController {
         logger.info("Agent stats retrieved | agentCount={}", agentStats.size());
 
         return ResponseEntity.ok(agentStats);
+    }
+
+    /**
+     * Get AI query usage metrics for the System Admin dashboard.
+     * Includes total queries, answer rate, response times, provider/language breakdowns,
+     * daily query counts, and estimated OpenAI cost.
+     * Access: ROLE_SYSTEM_ADMIN only
+     */
+    @GetMapping("/ai-stats")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<AIStatsDTO> getAIStats() {
+        AIStatsDTO stats = dashboardService.getAIStats();
+
+        logger.info("AI stats retrieved | totalQueries={} | answerRate={}% | avgResponseTimeMs={}",
+                stats.getTotalQueries(),
+                stats.getAnswerRate(),
+                stats.getAverageResponseTimeMs());
+
+        return ResponseEntity.ok(stats);
     }
 }
