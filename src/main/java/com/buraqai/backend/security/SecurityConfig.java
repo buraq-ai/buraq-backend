@@ -52,6 +52,7 @@ public class SecurityConfig {
 
                         // System Admin only
                         .requestMatchers("/api/admin/**").hasRole("SYSTEM_ADMIN")
+                        .requestMatchers("/api/actuator/**").hasRole("SYSTEM_ADMIN")
 
                         // Everything else requires authentication
                         .anyRequest().authenticated()

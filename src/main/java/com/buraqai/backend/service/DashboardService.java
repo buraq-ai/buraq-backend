@@ -20,6 +20,15 @@ import java.util.stream.Collectors;
 import com.buraqai.backend.dto.AIStatsDTO;
 import com.buraqai.backend.dto.DailyQueryCountDTO;
 import com.buraqai.backend.model.AIQueryLog;
+import com.buraqai.backend.dto.ServiceHealthDTO;
+import com.buraqai.backend.dto.SystemHealthDTO;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import java.time.LocalDateTime;
+
 
 @Service
 @RequiredArgsConstructor
@@ -212,7 +221,144 @@ public class DashboardService {
 
         return stats;
     }
+
+    /**
+     * Checks the health of all system components:
+     * Spring Boot, PostgreSQL, FastAPI, ChromaDB, and Ollama.
+     * Measures response time for each and sets overallStatus
+     * to DOWN if any single service is unreachable.
+     *
+     * @return SystemHealthDTO with per-service status and timings
+     */
+    public SystemHealthDTO getSystemHealth() {
+        LocalDateTime checkedAt = LocalDateTime.now();
+        List<ServiceHealthDTO> services = new ArrayList<>();
+        boolean allUp = true;
+
+        // 1. Spring Boot — always UP if this method is executing
+        long startBoot = System.currentTimeMillis();
+        long bootResponseTime = System.currentTimeMillis() - startBoot;
+        services.add(new ServiceHealthDTO(
+                "Spring Boot",
+                "UP",
+                bootResponseTime,
+                "Application is running",
+                checkedAt
+        ));
+
+        // 2. PostgreSQL — use repository count query
+        long startDb = System.currentTimeMillis();
+        try {
+            ticketRepository.count();
+            long dbResponseTime = System.currentTimeMillis() - startDb;
+            services.add(new ServiceHealthDTO(
+                    "PostgreSQL",
+                    "UP",
+                    dbResponseTime,
+                    "Database connection successful",
+                    checkedAt
+            ));
+        } catch (Exception e) {
+            allUp = false;
+            services.add(new ServiceHealthDTO(
+                    "PostgreSQL",
+                    "DOWN",
+                    null,
+                    e.getMessage(),
+                    checkedAt
+            ));
+        }
+
+        // 3. FastAPI — GET http://localhost:8000/health
+        services.add(checkExternalService(
+                "FastAPI",
+                "http://localhost:8001/health",
+                checkedAt
+        ));
+        if ("DOWN".equals(services.get(services.size() - 1).getStatus())) {
+            allUp = false;
+        }
+
+        // 4. ChromaDB — heartbeat endpoint
+        services.add(checkExternalService(
+                "ChromaDB",
+                "http://localhost:8000/api/v2/heartbeat",
+                checkedAt
+        ));
+        if ("DOWN".equals(services.get(services.size() - 1).getStatus())) {
+            allUp = false;
+        }
+
+        // 5. Ollama — GET http://localhost:11434/api/tags
+        services.add(checkOllamaService(checkedAt));
+        if ("DOWN".equals(services.get(services.size() - 1).getStatus())) {
+            allUp = false;
+        }
+
+        return new SystemHealthDTO(
+                allUp ? "UP" : "DOWN",
+                services,
+                checkedAt
+        );
+    }
     // --- Private helper methods ---
+
+    /**
+     * Generic health check for an external HTTP service.
+     * Calls the given URL and reports UP if it receives any successful response.
+     */
+    private ServiceHealthDTO checkExternalService(String serviceName, String url, LocalDateTime checkedAt) {
+        RestTemplate restTemplate = createRestTemplateWithTimeout();
+        long start = System.currentTimeMillis();
+        try {
+            restTemplate.exchange(url, HttpMethod.GET, HttpEntity.EMPTY, Map.class);
+            long responseTime = System.currentTimeMillis() - start;
+            return new ServiceHealthDTO(serviceName, "UP", responseTime,
+                    "Service is reachable", checkedAt);
+        } catch (Exception e) {
+            return new ServiceHealthDTO(serviceName, "DOWN", null,
+                    e.getMessage(), checkedAt);
+        }
+    }
+
+    /**
+     * Health check specifically for Ollama.
+     * Uses /api/tags to verify the service and capture available models.
+     */
+    private ServiceHealthDTO checkOllamaService(LocalDateTime checkedAt) {
+        RestTemplate restTemplate = createRestTemplateWithTimeout();
+        long start = System.currentTimeMillis();
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    "http://localhost:11434/api/tags",
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    Map.class
+            );
+            long responseTime = System.currentTimeMillis() - start;
+            Map<String, Object> body = response.getBody();
+            int modelCount = 0;
+            if (body != null && body.get("models") instanceof List) {
+                modelCount = ((List<?>) body.get("models")).size();
+            }
+            return new ServiceHealthDTO("Ollama", "UP", responseTime,
+                    modelCount + " model(s) available", checkedAt);
+        } catch (Exception e) {
+            return new ServiceHealthDTO("Ollama", "DOWN", null,
+                    e.getMessage(), checkedAt);
+        }
+    }
+
+    /**
+     * Creates a RestTemplate with 3-second connect and read timeouts.
+     */
+    private RestTemplate createRestTemplateWithTimeout() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000);
+        factory.setReadTimeout(3000);
+        return new RestTemplate(factory);
+    }
+
 
     private long countByStatus(List<Ticket> tickets, TicketStatus status) {
         return tickets.stream()

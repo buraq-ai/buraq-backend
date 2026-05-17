@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 import com.buraqai.backend.dto.AIStatsDTO;
+import com.buraqai.backend.dto.SystemHealthDTO;
 
 @RestController
 @RequestMapping("/api/dashboard")
@@ -77,5 +78,22 @@ public class DashboardController {
                 stats.getAverageResponseTimeMs());
 
         return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * Get real-time health status of all system components.
+     * Checks Spring Boot, PostgreSQL, FastAPI, ChromaDB, and Ollama.
+     * Returns HTTP 200 even if services are DOWN — status is in the response body.
+     * Access: ROLE_SYSTEM_ADMIN only
+     */
+    @GetMapping("/system-health")
+    @PreAuthorize("hasRole('ROLE_SYSTEM_ADMIN')")
+    public ResponseEntity<SystemHealthDTO> getSystemHealth() {
+        SystemHealthDTO health = dashboardService.getSystemHealth();
+
+        logger.info("System health checked | overallStatus={} | servicesChecked={}",
+                health.getOverallStatus(), health.getServices().size());
+
+        return ResponseEntity.ok(health);
     }
 }
