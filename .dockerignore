@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+
+# Maven build output (we'll rebuild inside Docker)
+target/
+
+# Uploads (runtime data, not part of the image)
+uploads/
+
+# Documentation
+HELP.md
+README.md
+
+# Maven wrapper (not needed, we use the official Maven image)
+.mvn/
+mvnw
+mvnw.cmd
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment / secret files (keep these out of images)
+.env
+*.env
