@@ -12,7 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import java.util.List;
 import java.time.LocalDateTime;
-
+import com.buraqai.backend.service.EmailService;
 import com.buraqai.backend.exception.TicketNotFoundException;
 import com.buraqai.backend.exception.InvalidAssignmentException;
 import com.buraqai.backend.dto.ConversationMessageDTO;
@@ -22,7 +22,8 @@ import com.buraqai.backend.exception.TicketClosedException;
 import com.buraqai.backend.exception.InvalidStatusTransitionException;
 import com.buraqai.backend.dto.TicketStatusHistoryDTO;
 import com.buraqai.backend.model.TicketStatusHistory;
-import com.buraqai.backend.model.TicketStatusHistory;
+import com.buraqai.backend.service.NotificationService;
+
 
 @Service
 public class TicketService {
@@ -33,19 +34,26 @@ public class TicketService {
     private final UserRepository userRepository;
     private final AuditLogRepository auditLogRepository;
     private final TicketResponseRepository ticketResponseRepository;
-
     private final TicketStatusHistoryRepository ticketStatusHistoryRepository;
+    private final NotificationService notificationService;
+    private final EmailService emailService;
+
+
 
     public TicketService(TicketRepository ticketRepository,
                          UserRepository userRepository,
                          AuditLogRepository auditLogRepository,
                          TicketResponseRepository ticketResponseRepository,
-                         TicketStatusHistoryRepository ticketStatusHistoryRepository) {
+                         TicketStatusHistoryRepository ticketStatusHistoryRepository,
+                         NotificationService notificationService,
+                         EmailService emailService) {
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.auditLogRepository = auditLogRepository;
         this.ticketResponseRepository = ticketResponseRepository;
         this.ticketStatusHistoryRepository = ticketStatusHistoryRepository;
+        this.notificationService = notificationService;
+        this.emailService = emailService;
     }
 
     /**
@@ -89,10 +97,34 @@ public class TicketService {
                 savedTicket.getCreatedBy()
         );
 
+        // Create in-app notification for the employee (non-critical — failure must not break ticket creation)
+        try {
+            // Create in-app notification
+            notificationService.createNotification(
+                    savedTicket.getCreatedBy(),
+                    "Ticket Created — #" + savedTicket.getId(),
+                    "Your support ticket has been created and is awaiting assignment. Your question: "
+                            + savedTicket.getTitle(),
+                    NotificationType.TICKET_CREATED,
+                    savedTicket.getId()
+            );
+            logger.info("Notification created for ticket | ticketId={} | recipient={}",
+                    savedTicket.getId(), savedTicket.getCreatedBy());
+
+            // Send backup email notification
+            emailService.sendTicketCreatedEmail(
+                    savedTicket.getCreatedBy(),
+                    savedTicket.getId(),
+                    savedTicket.getTitle()
+            );
+        } catch (Exception e) {
+            logger.error("Failed to create notification or send email for ticket | ticketId={} | error={}",
+                    savedTicket.getId(), e.getMessage(), e);
+            // Do not re-throw — notification/email failure must not fail ticket creation
+        }
+
         return mapToDTO(savedTicket);
     }
-
-
     /**
      * Retrieves paginated tickets assigned to a specific agent,
      * with optional status and date range filters.

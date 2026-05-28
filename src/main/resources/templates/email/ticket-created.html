@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+<div style="background-color: #1e40af; padding: 20px; text-align: center;">
+    <h1 style="color: white; margin: 0;">Buraq-AI</h1>
+</div>
+<div style="padding: 30px;">
+    <h2>Your Support Ticket Has Been Created</h2>
+    <p>Hello,</p>
+    <p>Your support ticket has been successfully created.
+        A support agent will be assigned shortly.</p>
+    <div style="background: #f3f4f6; padding: 15px; border-radius: 8px;">
+        <p><strong>Ticket ID:</strong>
+            #<span th:text="${ticketId}"></span></p>
+        <p><strong>Subject:</strong>
+            <span th:text="${ticketTitle}"></span></p>
+    </div>
+    <p style="margin-top: 20px;">
+        You can track your ticket status by logging
+        into the Buraq-AI platform.
+    </p>
+</div>
+</body>
+</html>
