@@ -341,6 +341,55 @@ public class TicketService {
         logger.info("Ticket status updated | ticketId={} | {} → {} | by={}",
                 ticketId, previousStatus, newStatus, changerEmail);
 
+        // 7. Notify ticket owner about the status change (non-critical)
+        try {
+            String notificationTitle;
+            String notificationMessage;
+
+            switch (newStatus) {
+                case CLOSED:
+                    notificationTitle = "Ticket Resolved — #" + ticket.getId();
+                    notificationMessage = "Your support ticket has been " +
+                            "resolved and closed. If your issue persists " +
+                            "please create a new ticket.";
+                    break;
+                case OPEN:
+                    notificationTitle = "Ticket Reopened — #" + ticket.getId();
+                    notificationMessage = "Your support ticket has been " +
+                            "reopened for further investigation.";
+                    break;
+                default:
+                    notificationTitle = "Ticket Updated — #" + ticket.getId();
+                    notificationMessage = "Your ticket status has changed " +
+                            "from " + previousStatus + " to " + newStatus;
+            }
+
+            // Create in-app notification
+            notificationService.createNotification(
+                    ticket.getCreatedBy(),
+                    notificationTitle,
+                    notificationMessage,
+                    NotificationType.TICKET_UPDATED,
+                    ticket.getId()
+            );
+
+            // Send email notification
+            emailService.sendTicketStatusUpdateEmail(
+                    ticket.getCreatedBy(),
+                    ticket.getId(),
+                    previousStatus.toString(),
+                    newStatus.toString()
+            );
+
+            logger.info("Status change notification sent | ticketId={} | recipient={} | {} → {}",
+                    ticket.getId(), ticket.getCreatedBy(), previousStatus, newStatus);
+
+        } catch (Exception e) {
+            logger.error("Failed to send status change notification | ticketId={} | error={}",
+                    ticket.getId(), e.getMessage(), e);
+            // Do not re-throw — notification failure must not break status update
+        }
+
         return mapToDTO(updatedTicket);
     }
 
@@ -514,7 +563,57 @@ public class TicketService {
         logger.info("Response added to ticket | ticketId={} | responder={} | isAgentResponse={}",
                 ticketId, responderEmail, isAgentResponse);
 
-        // 7. Convert to DTO and return
+        // 7. Send notification about the new response (non-critical)
+        try {
+            // Safely truncate response text to 100 characters for notification preview
+            String responsePreview = savedResponse.getResponseText();
+            if (responsePreview != null && responsePreview.length() > 100) {
+                responsePreview = responsePreview.substring(0, 100) + "...";
+            }
+
+            if (savedResponse.getIsAgentResponse()) {
+                // Agent responded — notify the employee (ticket owner)
+                notificationService.createNotification(
+                        ticket.getCreatedBy(),
+                        "New Response on Ticket — #" + ticket.getId(),
+                        "A support agent has responded to your ticket: " + responsePreview,
+                        NotificationType.TICKET_UPDATED,
+                        ticket.getId()
+                );
+
+                // Send email to the employee
+                emailService.sendNewResponseEmail(
+                        ticket.getCreatedBy(),
+                        ticket.getId(),
+                        savedResponse.getResponseText()
+                );
+
+                logger.info("Agent response notification sent | ticketId={} | recipient={}",
+                        ticket.getId(), ticket.getCreatedBy());
+
+            } else {
+                // Employee replied — notify the assigned agent if one exists
+                if (ticket.getAssignedTo() != null) {
+                    notificationService.createNotification(
+                            ticket.getAssignedTo(),
+                            "Employee Follow-up on Ticket — #" + ticket.getId(),
+                            "The employee has added a follow-up message: " + responsePreview,
+                            NotificationType.TICKET_UPDATED,
+                            ticket.getId()
+                    );
+
+                    logger.info("Employee follow-up notification sent | ticketId={} | recipient={}",
+                            ticket.getId(), ticket.getAssignedTo());
+                }
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to send response notification | ticketId={} | error={}",
+                    ticket.getId(), e.getMessage(), e);
+            // Do not re-throw — notification failure must not break the response flow
+        }
+
+        // 8. Convert to DTO and return
         return mapResponseToDTO(savedResponse);
     }
 

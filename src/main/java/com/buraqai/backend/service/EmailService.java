@@ -81,4 +81,106 @@ public class EmailService {
             // Catch-all for any other unexpected exceptions (e.g., template not found)
         }
     }
+
+
+    /**
+     * Sends an HTML email notification when a ticket's status is changed.
+     * This is a non-critical operation — if email sending fails,
+     * the error is logged but the exception is never propagated.
+     *
+     * @param recipientEmail The employee's email address
+     * @param ticketId       The ID of the ticket
+     * @param previousStatus The status before the change
+     * @param newStatus      The status after the change
+     */
+    public void sendTicketStatusUpdateEmail(String recipientEmail, Long ticketId,
+                                            String previousStatus, String newStatus) {
+        if (!mailEnabled) {
+            logger.info("Email sending is disabled (app.mail.enabled=false). " +
+                            "Skipping ticket status update email | ticketId={} | recipient={} | previousStatus={} | newStatus={}",
+                    ticketId, recipientEmail, previousStatus, newStatus);
+            return;
+        }
+
+        try {
+            Context context = new Context();
+            context.setVariable("ticketId", ticketId);
+            context.setVariable("previousStatus", previousStatus);
+            context.setVariable("newStatus", newStatus);
+
+            String htmlContent = templateEngine.process("email/ticket-status-update", context);
+
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(mailFrom);
+            helper.setTo(recipientEmail);
+            helper.setSubject("Your Ticket #" + ticketId + " Status Has Been Updated");
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+
+            logger.info("Ticket status update email sent successfully | ticketId={} | recipient={} | previousStatus={} | newStatus={}",
+                    ticketId, recipientEmail, previousStatus, newStatus);
+
+        } catch (MessagingException e) {
+            logger.error("Failed to send ticket status update email | ticketId={} | recipient={} | error={}",
+                    ticketId, recipientEmail, e.getMessage(), e);
+        } catch (Exception e) {
+            logger.error("Unexpected error while sending ticket status update email | ticketId={} | recipient={} | error={}",
+                    ticketId, recipientEmail, e.getMessage(), e);
+        }
+    }
+
+
+    /**
+     * Sends an HTML email notification when a support agent responds to a ticket.
+     * Only the first 200 characters of the response are included as a preview.
+     * This is a non-critical operation — if email sending fails,
+     * the error is logged but the exception is never propagated.
+     *
+     * @param recipientEmail  The employee's email address
+     * @param ticketId        The ID of the ticket
+     * @param responseText    The full response text from the agent
+     */
+    public void sendNewResponseEmail(String recipientEmail, Long ticketId, String responseText) {
+        if (!mailEnabled) {
+            logger.info("Email sending is disabled (app.mail.enabled=false). " +
+                    "Skipping new response email | ticketId={} | recipient={}", ticketId, recipientEmail);
+            return;
+        }
+
+        try {
+            // Truncate response to 200 characters for the email preview
+            String responsePreview = responseText != null && responseText.length() > 200
+                    ? responseText.substring(0, 200) + "..."
+                    : responseText;
+
+            Context context = new Context();
+            context.setVariable("ticketId", ticketId);
+            context.setVariable("responsePreview", responsePreview);
+
+            String htmlContent = templateEngine.process("email/new-response", context);
+
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(mailFrom);
+            helper.setTo(recipientEmail);
+            helper.setSubject("New Response on Your Ticket #" + ticketId);
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+
+            logger.info("New response email sent successfully | ticketId={} | recipient={} | previewLength={}",
+                    ticketId, recipientEmail, responsePreview != null ? responsePreview.length() : 0);
+
+        } catch (MessagingException e) {
+            logger.error("Failed to send new response email | ticketId={} | recipient={} | error={}",
+                    ticketId, recipientEmail, e.getMessage(), e);
+        } catch (Exception e) {
+            logger.error("Unexpected error while sending new response email | ticketId={} | recipient={} | error={}",
+                    ticketId, recipientEmail, e.getMessage(), e);
+        }
+    }
 }
