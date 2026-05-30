@@ -28,7 +28,7 @@ public class FastAPIHealthIndicator implements HealthIndicator {
     public Health health() {
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
-                    "http://localhost:8000/health",
+                    "http://buraq-ai-service:8001/health",
                     HttpMethod.GET,
                     HttpEntity.EMPTY,
                     Map.class
@@ -39,12 +39,12 @@ public class FastAPIHealthIndicator implements HealthIndicator {
             if (body != null && "UP".equals(body.get("status"))) {
                 return Health.up()
                         .withDetail("service", "FastAPI")
-                        .withDetail("url", "http://localhost:8000/health")
+                        .withDetail("url", "http://buraq-ai-service:8001/health")
                         .build();
             } else {
                 return Health.down()
                         .withDetail("service", "FastAPI")
-                        .withDetail("url", "http://localhost:8000/health")
+                        .withDetail("url", "http://buraq-ai-service:8001/health")
                         .withDetail("error", "Unexpected response: " + body)
                         .build();
             }
@@ -52,7 +52,7 @@ public class FastAPIHealthIndicator implements HealthIndicator {
         } catch (Exception e) {
             return Health.down()
                     .withDetail("service", "FastAPI")
-                    .withDetail("url", "http://localhost:8000/health")
+                    .withDetail("url", "http://buraq-ai-service:8001/health")
                     .withDetail("error", e.getMessage())
                     .build();
         }

@@ -272,7 +272,7 @@ public class DashboardService {
         // 3. FastAPI — GET http://localhost:8000/health
         services.add(checkExternalService(
                 "FastAPI",
-                "http://localhost:8001/health",
+                "http://buraq-ai-service:8001/health",
                 checkedAt
         ));
         if ("DOWN".equals(services.get(services.size() - 1).getStatus())) {
@@ -282,7 +282,7 @@ public class DashboardService {
         // 4. ChromaDB — heartbeat endpoint
         services.add(checkExternalService(
                 "ChromaDB",
-                "http://localhost:8000/api/v2/heartbeat",
+                "http://chromadb:8000/api/v2/heartbeat",
                 checkedAt
         ));
         if ("DOWN".equals(services.get(services.size() - 1).getStatus())) {
@@ -330,7 +330,7 @@ public class DashboardService {
         long start = System.currentTimeMillis();
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
-                    "http://localhost:11434/api/tags",
+                    "http://ollama:11434/api/tags",
                     HttpMethod.GET,
                     HttpEntity.EMPTY,
                     Map.class

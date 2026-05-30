@@ -27,7 +27,7 @@ public class OllamaHealthIndicator implements HealthIndicator {
     public Health health() {
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
-                    "http://localhost:11434/api/tags",
+                    "http://ollama:11434/api/tags",
                     HttpMethod.GET,
                     HttpEntity.EMPTY,
                     Map.class
@@ -38,13 +38,13 @@ public class OllamaHealthIndicator implements HealthIndicator {
             if (body != null && body.containsKey("models")) {
                 return Health.up()
                         .withDetail("service", "Ollama")
-                        .withDetail("url", "http://localhost:11434")
+                        .withDetail("url", "http://ollama:11434")
                         .withDetail("models", body.get("models"))
                         .build();
             } else {
                 return Health.down()
                         .withDetail("service", "Ollama")
-                        .withDetail("url", "http://localhost:11434")
+                        .withDetail("url", "http://ollama:11434")
                         .withDetail("error", "Unexpected response format")
                         .build();
             }
@@ -52,7 +52,7 @@ public class OllamaHealthIndicator implements HealthIndicator {
         } catch (Exception e) {
             return Health.down()
                     .withDetail("service", "Ollama")
-                    .withDetail("url", "http://localhost:11434")
+                    .withDetail("url", "http://ollama:11434")
                     .withDetail("error", e.getMessage())
                     .build();
         }
