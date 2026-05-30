@@ -1,5 +1,4 @@
-package com.buraqai.buraq_backend;
-
+package com.buraqai.backend;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
