@@ -245,6 +245,56 @@ public class TicketService {
         logger.info("Ticket assigned | ticketId={} | assignedTo={} | assignedBy={}",
                 ticketId, agentEmail, adminEmail);
 
+        // 6. Notify the assigned support agent (non-critical)
+        try {
+            notificationService.createNotification(
+                    agentEmail,
+                    "New Ticket Assigned — #" + ticket.getId(),
+                    "Ticket #" + ticket.getId() + " has been assigned " +
+                            "to you: " + ticket.getTitle(),
+                    NotificationType.TICKET_ASSIGNED,
+                    ticket.getId()
+            );
+            logger.info("Assignment notification sent to agent | ticketId={} | agent={}",
+                    ticket.getId(), agentEmail);
+            // Send email to the agent
+            emailService.sendTicketAssignedEmail(
+                    agentEmail,
+                    ticket.getId(),
+                    ticket.getTitle()
+            );
+        } catch (Exception e) {
+            logger.error("Failed to send assignment notification to agent | ticketId={} | agent={} | error={}",
+                    ticket.getId(), agentEmail, e.getMessage(), e);
+            // Do not re-throw — notification failure must not break ticket assignment
+        }
+
+        // 7. Notify the employee that their ticket is being handled (non-critical)
+        try {
+            notificationService.createNotification(
+                    ticket.getCreatedBy(),
+                    "Your Ticket is Being Handled — #" + ticket.getId(),
+                    "Your support ticket #" + ticket.getId() +
+                            " has been assigned to a support agent " +
+                            "and is now in progress.",
+                    NotificationType.TICKET_UPDATED,
+                    ticket.getId()
+            );
+            logger.info("Assignment notification sent to employee | ticketId={} | employee={}",
+                    ticket.getId(), ticket.getCreatedBy());
+
+            // Send email to the employee
+            emailService.sendTicketInProgressEmail(
+                    ticket.getCreatedBy(),
+                    ticket.getId()
+            );
+
+        } catch (Exception e) {
+            logger.error("Failed to send assignment notification to employee | ticketId={} | employee={} | error={}",
+                    ticket.getId(), ticket.getCreatedBy(), e.getMessage(), e);
+            // Do not re-throw — notification failure must not break ticket assignment
+        }
+
         return mapToDTO(updatedTicket);
     }
 

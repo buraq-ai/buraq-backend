@@ -183,4 +183,97 @@ public class EmailService {
                     ticketId, recipientEmail, e.getMessage(), e);
         }
     }
+
+    /**
+     * Sends an HTML email notification to a support agent when a ticket
+     * is assigned to them.
+     * This is a non-critical operation — if email sending fails,
+     * the error is logged but the exception is never propagated.
+     *
+     * @param agentEmail  The support agent's email address
+     * @param ticketId    The ID of the assigned ticket
+     * @param ticketTitle The title/subject of the ticket
+     */
+    public void sendTicketAssignedEmail(String agentEmail, Long ticketId, String ticketTitle) {
+        if (!mailEnabled) {
+            logger.info("Email sending is disabled (app.mail.enabled=false). " +
+                            "Skipping ticket assigned email | ticketId={} | agent={}",
+                    ticketId, agentEmail);
+            return;
+        }
+
+        try {
+            Context context = new Context();
+            context.setVariable("ticketId", ticketId);
+            context.setVariable("ticketTitle", ticketTitle);
+
+            String htmlContent = templateEngine.process("email/ticket-assigned-agent", context);
+
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(mailFrom);
+            helper.setTo(agentEmail);
+            helper.setSubject("New Ticket Assigned to You — #" + ticketId);
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+
+            logger.info("Ticket assigned email sent successfully | ticketId={} | agent={}",
+                    ticketId, agentEmail);
+
+        } catch (MessagingException e) {
+            logger.error("Failed to send ticket assigned email | ticketId={} | agent={} | error={}",
+                    ticketId, agentEmail, e.getMessage(), e);
+        } catch (Exception e) {
+            logger.error("Unexpected error while sending ticket assigned email | ticketId={} | agent={} | error={}",
+                    ticketId, agentEmail, e.getMessage(), e);
+        }
+    }
+
+
+    /**
+     * Sends an HTML email notification to the employee (ticket owner)
+     * when their ticket is assigned to a support agent and is now in progress.
+     * This is a non-critical operation — if email sending fails,
+     * the error is logged but the exception is never propagated.
+     *
+     * @param employeeEmail The employee's email address (ticket owner)
+     * @param ticketId      The ID of the ticket
+     */
+    public void sendTicketInProgressEmail(String employeeEmail, Long ticketId) {
+        if (!mailEnabled) {
+            logger.info("Email sending is disabled (app.mail.enabled=false). " +
+                            "Skipping ticket in progress email | ticketId={} | employee={}",
+                    ticketId, employeeEmail);
+            return;
+        }
+
+        try {
+            Context context = new Context();
+            context.setVariable("ticketId", ticketId);
+
+            String htmlContent = templateEngine.process("email/ticket-in-progress", context);
+
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(mailFrom);
+            helper.setTo(employeeEmail);
+            helper.setSubject("Your Ticket #" + ticketId + " is Now In Progress");
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+
+            logger.info("Ticket in progress email sent successfully | ticketId={} | employee={}",
+                    ticketId, employeeEmail);
+
+        } catch (MessagingException e) {
+            logger.error("Failed to send ticket in progress email | ticketId={} | employee={} | error={}",
+                    ticketId, employeeEmail, e.getMessage(), e);
+        } catch (Exception e) {
+            logger.error("Unexpected error while sending ticket in progress email | ticketId={} | employee={} | error={}",
+                    ticketId, employeeEmail, e.getMessage(), e);
+        }
+    }
 }

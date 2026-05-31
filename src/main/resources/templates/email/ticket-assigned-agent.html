@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 0; background-color: #f9fafb;">
+<!-- Header -->
+<div style="background-color: #1e40af; padding: 20px; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 24px;">Buraq-AI</h1>
+</div>
+
+<!-- Body -->
+<div style="padding: 30px; background-color: white;">
+    <h2 style="color: #1e40af; margin-top: 0;">New Ticket Assigned to You</h2>
+
+    <p style="font-size: 16px; line-height: 1.6; color: #374151;">Hello,</p>
+
+    <p style="font-size: 16px; line-height: 1.6; color: #374151;">
+        A new support ticket has been assigned to you. Please review and respond
+        as soon as possible.
+    </p>
+
+    <!-- Ticket Details Box -->
+    <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #1e40af;">
+        <p style="margin: 0 0 8px 0; font-size: 16px; color: #374151;">
+            <strong>Ticket ID:</strong> #<span th:text="${ticketId}">123</span>
+        </p>
+        <p style="margin: 0; font-size: 16px; color: #374151;">
+            <strong>Subject:</strong> <span th:text="${ticketTitle}">Ticket title goes here</span>
+        </p>
+    </div>
+
+    <p style="font-size: 16px; line-height: 1.6; color: #374151;">
+        Log in to Buraq-AI to view the full ticket details and respond to the employee.
+    </p>
+
+    <!-- CTA Button -->
+    <div style="text-align: center; margin: 30px 0;">
+        <a href="#" style="background-color: #1e40af; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: bold; display: inline-block;">
+            View Ticket
+        </a>
+    </div>
+</div>
+
+<!-- Footer -->
+<div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-top: 1px solid #e5e7eb;">
+    <p style="margin: 0; font-size: 12px; color: #6b7280;">
+        This is an automated notification from Buraq-AI. Please do not reply to this email.
+    </p>
+</div>
+</body>
+</html>
